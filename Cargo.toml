@@ -1,0 +1,18 @@
+#:schema https://json.schemastore.org/cargo.json
+
+[package]
+name = "jjespr"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = { version = "1.0.100", features = ["backtrace"] }
+dirs = "6.0.0"
+gix = { version = "0.78.0", default-features = false, features = [
+  "attributes",
+  "blob-diff",
+  "index",
+  "max-performance-safe",
+  "zlib-rs",
+] }
+jj-lib = "0.37.0"
