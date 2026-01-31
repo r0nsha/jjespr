@@ -1,14 +1,21 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use jj_lib::{
+    commit::Commit,
     config::{ConfigLayer, ConfigNamePathBuf, ConfigSource, StackedConfig},
+    git,
     object_id::ObjectId,
     ref_name::RemoteNameBuf,
     repo::{ReadonlyRepo, Repo, StoreFactories},
-    revset::RevsetAliasesMap,
+    repo_path::RepoPathUiConverter,
+    revset::{
+        self, RevsetAliasesMap, RevsetDiagnostics, RevsetExtensions, RevsetParseContext,
+        RevsetWorkspaceContext, SymbolResolver, SymbolResolverExtension,
+    },
     settings::UserSettings,
     str_util::{StringMatcher, StringPattern},
+    time_util::DatePatternContext,
     workspace::{Workspace, default_working_copy_factories},
 };
 
@@ -21,6 +28,11 @@ fn main() -> Result<()> {
     let bookmarks = jj.bookmarks();
     dbg!(&bookmarks);
     dbg!(jj.trunk());
+    let target_bookmark = std::env::args().nth(1).unwrap_or_default();
+    // TODO: use clap
+    // TODO: validate target_bookmark
+    let commits = jj.evaluate_revset(&format!("trunk()::{target_bookmark}"));
+    dbg!(&commits);
     Ok(())
 }
 
@@ -149,9 +161,7 @@ impl Jj {
             for (symbol, ref_) in
                 view.remote_bookmarks_matching(&bookmark_matcher, &StringMatcher::All)
             {
-                let remote_name = symbol.remote.as_str();
-
-                if remote_name == "git" {
+                if symbol.remote == git::REMOTE_NAME_FOR_LOCAL_GIT_REPO {
                     continue;
                 }
 
@@ -174,104 +184,63 @@ impl Jj {
         Ok(bookmarks)
     }
 
-    // pub fn maybe_set_repository_level_trunk_alias(
-    //     ui: &Ui,
-    //     git_repo: &gix::Repository,
-    //     config_env: &ConfigEnv,
-    // ) -> Result<(), CommandError> {
-    //     // Try "upstream" first, then fall back to "origin"
-    //     for remote in ["upstream", "origin"] {
-    //         let ref_name = format!("refs/remotes/{remote}/HEAD");
-    //         if let Some(reference) = git_repo
-    //             .try_find_reference(&ref_name)
-    //             .map_err(internal_error)?
-    //         {
-    //             // Found a HEAD reference for this remote. Even if we can't parse it,
-    //             // we should stop here and not try other remotes because it doesn't
-    //             // really make sense if "origin" were to be set as the default if we
-    //             // know "upstream" exists.
-    //             if let Some(reference_name) = reference.target().try_name()
-    //                 && let Some((GitRefKind::Bookmark, symbol)) =
-    //                     str::from_utf8(reference_name.as_bstr())
-    //                         .ok()
-    //                         .and_then(|name| parse_git_ref(name.as_ref()))
-    //             {
-    //                 // TODO: Can we assume the symbolic target points to the same remote?
-    //                 let symbol = symbol.name.to_remote_symbol(remote.as_ref());
-    //                 write_repository_level_trunk_alias(ui, config_env, symbol)?;
-    //             }
-    //             return Ok(());
-    //         }
-    //     }
-    //
-    //     Ok(())
-    // }
+    fn evaluate_revset(&self, expr: &str) -> Result<Vec<Commit>> {
+        let repo = self.repo()?;
+        let extensions = RevsetExtensions::new();
 
-    // fn evaluate_revset(&self, expr: &str) -> Result<()> {
-    //     let repo = self.repo()?;
-    //     let extensions = RevsetExtensions::new();
-    //     let mut aliases = RevsetAliasesMap::default();
-    //
-    //     // // Define trunk() alias - checks remote HEAD first, then falls back to jj's default
-    //     // let trunk_alias = Self::compute_trunk_alias(&repo);
-    //     // aliases
-    //     //     .insert("trunk()", trunk_alias)
-    //     //     .expect("trunk() alias declaration is valid");
-    //     //
-    //     // let date_context = jj_lib::time_util::DatePatternContext::Local(chrono::Local::now());
-    //     //
-    //     // // Create workspace context for trunk() resolution
-    //     // let workspace_root = self.workspace.workspace_root().to_path_buf();
-    //     // let path_converter = RepoPathUiConverter::Fs {
-    //     //     cwd: workspace_root.clone(),
-    //     //     base: workspace_root,
-    //     // };
-    //     // let workspace_name = self.workspace.workspace_name();
-    //     // let workspace_ctx = RevsetWorkspaceContext {
-    //     //     path_converter: &path_converter,
-    //     //     workspace_name,
-    //     // };
-    //     //
-    //     // let context = RevsetParseContext {
-    //     //     aliases_map: &aliases,
-    //     //     local_variables: std::collections::HashMap::new(),
-    //     //     user_email: self.settings.user_email(),
-    //     //     date_pattern_context: date_context,
-    //     //     default_ignored_remote: Some(git::REMOTE_NAME_FOR_LOCAL_GIT_REPO),
-    //     //     use_glob_by_default: false,
-    //     //     extensions: &extensions,
-    //     //     workspace: Some(workspace_ctx),
-    //     // };
-    //     //
-    //     // let mut diagnostics = RevsetDiagnostics::new();
-    //     // let expression = parse(&mut diagnostics, expr, &context)
-    //     //     .map_err(|e| Error::Parse(format!("Failed to parse revset: {e}")))?;
-    //     //
-    //     // let empty_extensions: &[Box<dyn SymbolResolverExtension>] = &[];
-    //     // let symbol_resolver = SymbolResolver::new(repo.as_ref(), empty_extensions);
-    //     // let resolved = expression
-    //     //     .resolve_user_expression(repo.as_ref(), &symbol_resolver)
-    //     //     .map_err(|e| Error::Revset(format!("Failed to resolve revset: {e}")))?;
-    //     //
-    //     // let revset = resolved
-    //     //     .evaluate(repo.as_ref())
-    //     //     .map_err(|e| Error::Revset(format!("Failed to evaluate revset: {e}")))?;
-    //     //
-    //     // let mut entries = Vec::new();
-    //     // for commit_id in revset.iter() {
-    //     //     let commit_id =
-    //     //         commit_id.map_err(|e| Error::Revset(format!("Failed to iterate revset: {e}")))?;
-    //     //     let commit = repo
-    //     //         .store()
-    //     //         .get_commit(&commit_id)
-    //     //         .map_err(|e| Error::Workspace(format!("Failed to get commit: {e}")))?;
-    //     //
-    //     //     entries.push(Self::commit_to_log_entry(&repo, &commit));
-    //     // }
-    //     //
-    //     // Ok(entries)
-    //     Ok(())
-    // }
+        let date_context = DatePatternContext::Local(chrono::Local::now());
+
+        // Create workspace context for trunk() resolution
+        let workspace_root = self.workspace.workspace_root().to_path_buf();
+        let path_converter = RepoPathUiConverter::Fs {
+            cwd: workspace_root.clone(),
+            base: workspace_root,
+        };
+        let workspace_name = self.workspace.workspace_name();
+        let workspace_ctx = RevsetWorkspaceContext {
+            path_converter: &path_converter,
+            workspace_name,
+        };
+
+        let context = RevsetParseContext {
+            aliases_map: &self.revset_aliases,
+            local_variables: std::collections::HashMap::new(),
+            user_email: self.settings.user_email(),
+            date_pattern_context: date_context,
+            default_ignored_remote: Some(git::REMOTE_NAME_FOR_LOCAL_GIT_REPO),
+            use_glob_by_default: false,
+            extensions: &extensions,
+            workspace: Some(workspace_ctx),
+        };
+
+        let mut diagnostics = RevsetDiagnostics::new();
+        let Ok(expr) = revset::parse(&mut diagnostics, expr, &context) else {
+            for diag in diagnostics.iter() {
+                eprintln!("{diag}");
+            }
+            bail!("Failed to parse revset");
+        };
+
+        let resolved = {
+            let resolver_extensions: &[Box<dyn SymbolResolverExtension>] = &[];
+            let symbol_resolver = SymbolResolver::new(repo.as_ref(), resolver_extensions);
+            expr.resolve_user_expression(repo.as_ref(), &symbol_resolver)
+                .context("Failed to resolve revset")
+        }?;
+
+        let revset = resolved
+            .evaluate(repo.as_ref())
+            .context("Failed to evaluate revset")?;
+
+        revset
+            .iter()
+            .map(|commit_id| {
+                let commit_id = commit_id?;
+                let commit = repo.store().get_commit(&commit_id)?;
+                Ok(commit)
+            })
+            .collect::<Result<Vec<_>>>()
+    }
 }
 
 #[derive(Debug)]
