@@ -1,6 +1,10 @@
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result, bail};
+use clap::{Args, Parser, Subcommand};
 use jj_lib::{
     commit::Commit,
     config::{ConfigLayer, ConfigNamePathBuf, ConfigSource, StackedConfig},
@@ -19,18 +23,57 @@ use jj_lib::{
     workspace::{Workspace, default_working_copy_factories},
 };
 
+#[derive(Parser, Debug)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+
+    /// Sets the JJ workspace root
+    #[arg(short, long, value_name = "DIR")]
+    path: Option<PathBuf>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Commands {
+    Submit(SubmitArgs),
+}
+
+#[derive(Args, Debug)]
+struct SubmitArgs {
+    /// Optional bookmark name
+    bookmark: Option<String>,
+}
+
 // TODO: custom remotes
 // TODO: custom base
 fn main() -> Result<()> {
-    // TODO: get all bookmarks
-    let cwd = std::env::current_dir().context("Failed to get cwd")?;
-    let jj = Jj::new(&cwd)?;
-    let bookmarks = jj.bookmarks();
-    dbg!(&bookmarks);
-    dbg!(jj.trunk());
-    let target_bookmark = std::env::args().nth(1).unwrap_or_default();
-    // TODO: use clap
-    // TODO: validate target_bookmark
+    let args = Cli::parse();
+
+    let root = if let Some(path) = args.path {
+        path
+    } else {
+        std::env::current_dir().context("failed to get cwd")?
+    };
+
+    match args.command {
+        Commands::Submit(args) => cmd_submit(root, args),
+    }
+}
+
+fn submit(root: PathBuf, args: SubmitArgs) -> Result<()> {
+    let jj = Jj::new(&root)?;
+    let target_bookmark = if let Some(bookmark) = args.bookmark {
+        // TODO: validate target_bookmark
+        let repo = jj.repo()?;
+        let view = repo.view();
+        view.local_bookmarks()
+            .find(|(name, _)| name.as_str() == bookmark)
+            .with_context(|| format!("bookmark {bookmark} doesn't exist"))?;
+        bookmark
+    } else {
+        // TODO
+        todo!("interactive stack picker")
+    };
     let commits = jj.evaluate_revset(&format!("trunk()::{target_bookmark}"));
     dbg!(&commits);
     Ok(())
@@ -218,19 +261,19 @@ impl Jj {
             for diag in diagnostics.iter() {
                 eprintln!("{diag}");
             }
-            bail!("Failed to parse revset");
+            bail!("failed to parse revset");
         };
 
         let resolved = {
             let resolver_extensions: &[Box<dyn SymbolResolverExtension>] = &[];
             let symbol_resolver = SymbolResolver::new(repo.as_ref(), resolver_extensions);
             expr.resolve_user_expression(repo.as_ref(), &symbol_resolver)
-                .context("Failed to resolve revset")
+                .context("failed to resolve revset")
         }?;
 
         let revset = resolved
             .evaluate(repo.as_ref())
-            .context("Failed to evaluate revset")?;
+            .context("failed to evaluate revset")?;
 
         revset
             .iter()
