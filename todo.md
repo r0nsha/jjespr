@@ -1,0 +1,24 @@
+- [ ] cmd: `submit` - submit a stack of bookmarks to gh
+  - [x] create stack of bookmarks to display
+  - [ ] planner
+    - [ ] create graph of bookmarks from `Log`
+    - [ ] dry-run
+    - [ ] take a snapshot of the repo before doing any changes
+    - [ ] rebase bookmark onto base
+    - [ ] push bookmark
+    - [ ] take a snapshot of the repo after changes
+    - [ ] gh: create pr
+      - [ ] gh: set title to bookmark name
+      - [ ] gh: set base
+    - [ ] show resulting stack, with clickable links (if supported, of not, just print the URLs)
+    - [ ] gh: create stack comment with metadata in html comment
+  - [ ] `submit` should sync with remote
+    - [ ] check which bookmarks have a merged remote, abandon and rebase as necessary
+    - [ ] gh: update base
+    - [ ] gh: update stack comment
+- [ ] options
+  - [ ] custom base
+  - [ ] custom remote
+- [ ] optimizations
+  - [ ] parallelize work across PR's (async?)
+- [ ] cmd: `jjespr st/status` - see status of all current stacks

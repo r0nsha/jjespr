@@ -26,20 +26,6 @@ enum Commands {
 #[derive(Args, Debug)]
 struct SubmitArgs {}
 
-// TODO: async
-// TODO: planner: rebase bookmark onto base
-// TODO: planner: push bookmark
-// TODO: planner: dry-run
-// TODO: planner: create pr
-// TODO: planner: set base
-// TODO: planner: create stack comment
-// TODO: planner: update base
-// TODO: planner: update stack comment
-// TODO: custom colored error reporting with owo-colors
-// TODO: custom remote
-// TODO: custom base
-// TODO: status command
-// TODO: interactive stack picker
 fn main() -> Result<()> {
     let args = Cli::parse();
 
