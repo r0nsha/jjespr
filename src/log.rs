@@ -23,8 +23,38 @@ pub struct Log {
 }
 
 impl Log {
-    pub fn new(jj: &Jj, revset: &str) -> Result<Self> {
-        let graph = jj.evaluate_revset_graph(revset)?;
+    pub fn new(jj: &Jj, base_revset: &str) -> Result<Self> {
+        let base_commits = jj.evaluate_revset(base_revset)?;
+
+        if base_commits.len() != 1 {
+            anyhow::bail!("base revset `{base_revset}` must resolve to exactly one commit")
+        }
+
+        let repo = jj.repo()?;
+        let view = repo.view();
+
+        let base_bookmarks: Vec<_> = view
+            .local_bookmarks_for_commit(base_commits[0].id())
+            .map(|(name, _)| name.as_str().to_string())
+            .collect();
+
+        if base_bookmarks.is_empty() {
+            anyhow::bail!(
+                "base commit `{}` has no bookmarks",
+                base_commits[0].id().hex()
+            )
+        };
+
+        if base_bookmarks.len() > 1 {
+            anyhow::bail!(
+                "base commit `{}` has multiple bookmarks, base commit must have exactly one",
+                base_commits[0].id().hex()
+            )
+        }
+
+        let base_bookmark = &base_bookmarks[0];
+
+        let graph = jj.evaluate_revset_graph(&format!("{base_revset}::"))?;
 
         let mut this = Self {
             graph,
@@ -32,16 +62,13 @@ impl Log {
             commit_bookmarks: HashMap::new(),
         };
 
-        let repo = jj.repo()?;
-        let view = repo.view();
-
         for (commit, _) in &this.graph {
             let id = commit.id();
             let start_idx = this.bookmarks.len();
             let bookmarks = view
                 .local_bookmarks_for_commit(id)
                 .map(|(name, target)| {
-                    Bookmark::from_name_and_target(view, name, target, jj.trunk.as_deref())
+                    Bookmark::from_name_and_target(view, name, target, base_bookmark)
                 })
                 .collect::<Result<Vec<_>>>()?;
             let end_idx = start_idx + bookmarks.len();

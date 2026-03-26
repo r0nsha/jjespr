@@ -17,7 +17,7 @@
     - [ ] gh: update base
     - [ ] gh: update stack comment
 - [ ] options
-  - [ ] custom base
+  - [x] custom base
   - [ ] custom remote
 - [ ] optimizations
   - [ ] parallelize work across PR's (async?)

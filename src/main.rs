@@ -1,12 +1,12 @@
 mod jj;
-mod stack;
+mod log;
 
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 
-use crate::{jj::Jj, stack::Log};
+use crate::{jj::Jj, log::Log};
 
 #[derive(Parser, Debug)]
 struct Cli {
@@ -24,7 +24,11 @@ enum Commands {
 }
 
 #[derive(Args, Debug)]
-struct SubmitArgs {}
+struct SubmitArgs {
+    /// The base revset to submit against, must resolve to a single bookmark that has a remote
+    #[arg(short, long, value_name = "REVSET")]
+    base: Option<String>,
+}
 
 fn main() -> Result<()> {
     let args = Cli::parse();
@@ -40,11 +44,11 @@ fn main() -> Result<()> {
     }
 }
 
-fn submit(root: PathBuf, _args: SubmitArgs) -> Result<()> {
+fn cmd_submit(root: PathBuf, args: SubmitArgs) -> Result<()> {
     let jj = Jj::new(&root)?;
     let repo = jj.repo()?;
 
-    let log = Log::new(&jj, "trunk()::")?;
+    let log = Log::new(&jj, &args.base.unwrap_or_else(|| "trunk()".to_string()))?;
 
     println!(
         "The following stack will be submitted:\n{}",

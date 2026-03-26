@@ -1,6 +1,6 @@
 use std::{path::Path, sync::Arc};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use jj_lib::{
     backend::CommitId,
     commit::Commit,
@@ -19,14 +19,13 @@ use jj_lib::{
     str_util::{StringMatcher, StringPattern},
     time_util::DatePatternContext,
     view::View,
-    workspace::{default_working_copy_factories, Workspace},
+    workspace::{Workspace, default_working_copy_factories},
 };
 
 pub struct Jj {
     workspace: Workspace,
     settings: UserSettings,
     revset_aliases: RevsetAliasesMap,
-    pub trunk: Option<String>,
 }
 
 impl Jj {
@@ -79,16 +78,11 @@ impl Jj {
                 .expect("valid alias declaration");
         };
 
-        let mut this = Self {
+        Ok(Self {
             workspace,
             settings,
             revset_aliases,
-            trunk: None,
-        };
-
-        this.trunk = this.trunk()?;
-
-        Ok(this)
+        })
     }
 
     pub fn load_revset_aliases(config: &StackedConfig) -> Result<RevsetAliasesMap> {
@@ -233,7 +227,7 @@ impl Bookmark {
         view: &View,
         name: &RefName,
         target: &RefTarget,
-        trunk: Option<&str>,
+        base: &str,
     ) -> Result<Self> {
         let Some(commit_id) = target.as_normal() else {
             bail!("bookmark {} is not a normal commit", name.as_str())
@@ -263,7 +257,7 @@ impl Bookmark {
             commit_id: commit_id.clone(),
             remote: None,
             synced,
-            is_base: trunk.is_some_and(|t| t == name.as_str()),
+            is_base: base == name.as_str(),
         })
     }
 }
