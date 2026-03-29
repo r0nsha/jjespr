@@ -136,11 +136,14 @@ impl Jj {
         let repo = self.repo().await?;
         let view = repo.view();
         let workspace_name = self.workspace_name();
-        
+
         let Some(commit_id) = view.get_wc_commit_id(workspace_name) else {
-            bail!("no working copy commit found for workspace {:?}", workspace_name.as_str())
+            bail!(
+                "no working copy commit found for workspace {:?}",
+                workspace_name.as_str()
+            )
         };
-        
+
         Ok(commit_id.clone())
     }
 

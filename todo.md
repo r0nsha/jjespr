@@ -1,10 +1,9 @@
 - [ ] cmd: `submit` - submit a stack of bookmarks to gh
   - [x] create stack of bookmarks to display
-  - [ ] planner
-    - [ ] create graph of bookmarks from `Log`
-    - [ ] dry-run
-    - [ ] take a snapshot of the repo before doing any changes
-    - [ ] rebase bookmark onto base
+  - [ ] submit
+    - [x] dry-run
+    - [x] take a snapshot of the repo before doing any changes
+    - [x] create graph of bookmarks from `Log`
     - [ ] push bookmark
     - [ ] take a snapshot of the repo after changes
     - [ ] gh: create pr

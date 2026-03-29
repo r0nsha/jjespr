@@ -4,6 +4,7 @@ use anyhow::Result;
 use jj_lib::{
     backend::CommitId,
     commit::Commit,
+    dag_walk::dfs,
     graph::{GraphEdge, GraphEdgeType, GraphNode},
     id_prefix::IdPrefixIndex,
     object_id::ObjectId,
@@ -59,18 +60,19 @@ impl Log {
 
         // Collect all local bookmarks with their commit IDs
         let mut bookmark_distances: Vec<(String, usize)> = Vec::new();
-        
+
         for (name, target) in view.local_bookmarks() {
             let Some(bookmark_commit_id) = target.as_normal() else {
                 continue;
             };
-            
+
             let bookmark_name = name.as_str().to_string();
-            
+
             // Check if this bookmark is an ancestor of the working copy
             // We use the revset: bookmark_commit..working_copy
-            let ancestor_check_revset = format!("{}..{}", bookmark_commit_id.hex(), working_copy_id.hex());
-            
+            let ancestor_check_revset =
+                format!("{}..{}", bookmark_commit_id.hex(), working_copy_id.hex());
+
             match jj.evaluate_revset(&ancestor_check_revset).await {
                 Ok(commits) => {
                     // If the bookmark is an ancestor, the distance is the number of commits between them
@@ -90,7 +92,10 @@ impl Log {
         }
 
         // Find the closest bookmark (minimum distance)
-        let closest_bookmark = if let Some((closest, _)) = bookmark_distances.iter().min_by_key(|(_, distance)| *distance) {
+        let closest_bookmark = if let Some((closest, _)) = bookmark_distances
+            .iter()
+            .min_by_key(|(_, distance)| *distance)
+        {
             closest.clone()
         } else {
             // No bookmarks are ancestors of working copy, fall back to base
@@ -105,12 +110,13 @@ impl Log {
             // Check if the closest bookmark has any descendant bookmarks
             let descendant_check_revset = format!("bookmarks({closest_bookmark}):: & bookmarks()");
             let descendant_bookmarks = jj.evaluate_revset(&descendant_check_revset).await?;
-            
+
             // Get the commit ID of the closest bookmark
             let closest_bookmark_commit = jj.evaluate_revset(&closest_bookmark).await?;
-            let has_other_descendant_bookmarks = descendant_bookmarks.len() > 1 || 
-                (descendant_bookmarks.len() == 1 && descendant_bookmarks[0].id() != closest_bookmark_commit[0].id());
-            
+            let has_other_descendant_bookmarks = descendant_bookmarks.len() > 1
+                || (descendant_bookmarks.len() == 1
+                    && descendant_bookmarks[0].id() != closest_bookmark_commit[0].id());
+
             if has_other_descendant_bookmarks {
                 // The closest bookmark has descendant branches, show all
                 format!("{base_revset}::")
@@ -120,9 +126,7 @@ impl Log {
             }
         };
 
-        let graph = jj
-            .evaluate_revset_graph(&revset_expr)
-            .await?;
+        let graph = jj.evaluate_revset_graph(&revset_expr).await?;
 
         let mut this = Self {
             graph,
@@ -154,6 +158,35 @@ impl Log {
             .get(commit_id)
             .map(|indices| indices.iter().map(|i| &self.bookmarks[*i]).collect())
             .unwrap_or_default()
+    }
+
+    pub fn bookmark_graph(&self) -> Vec<BookmarkGraphNode<'_>> {
+        let mut all_bookmarks = vec![];
+        let mut commit_to_edges = HashMap::new();
+
+        for (commit, edges) in &self.graph {
+            all_bookmarks.extend(self.bookmarks_for_commit(commit.id()));
+            commit_to_edges.insert(commit.id(), edges);
+        }
+
+        let mut graph = vec![];
+
+        for bookmark in all_bookmarks {
+            let parent = dfs([bookmark.commit_id.clone()], Clone::clone, |id| {
+                commit_to_edges
+                    .get(id)
+                    .into_iter()
+                    .flat_map(|edges| edges.iter())
+                    .filter(|e| e.edge_type != GraphEdgeType::Missing)
+                    .map(|e| e.target.clone())
+            })
+            .skip(1)
+            .find_map(|id| self.bookmarks_for_commit(&id).first().cloned());
+
+            graph.push(BookmarkGraphNode { bookmark, parent })
+        }
+
+        graph
     }
 
     pub fn display<'a, R: Repo>(&self, repo: &'a R) -> DisplayLog<'a> {
@@ -363,4 +396,10 @@ impl DisplayLog<'_> {
 
         format!("{}\n{}", parts.join(" "), desc)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct BookmarkGraphNode<'a> {
+    pub bookmark: &'a Bookmark,
+    pub parent: Option<&'a Bookmark>,
 }
