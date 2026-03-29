@@ -54,6 +54,72 @@ impl Log {
 
         let base_bookmark = &base_bookmarks[0];
 
+        // Get working copy commit
+        let working_copy_id = jj.get_working_copy_commit_id().await?;
+
+        // Collect all local bookmarks with their commit IDs
+        let mut bookmark_distances: Vec<(String, usize)> = Vec::new();
+        
+        for (name, target) in view.local_bookmarks() {
+            let Some(bookmark_commit_id) = target.as_normal() else {
+                continue;
+            };
+            
+            let bookmark_name = name.as_str().to_string();
+            
+            // Check if this bookmark is an ancestor of the working copy
+            // We use the revset: bookmark_commit..working_copy
+            let ancestor_check_revset = format!("{}..{}", bookmark_commit_id.hex(), working_copy_id.hex());
+            
+            match jj.evaluate_revset(&ancestor_check_revset).await {
+                Ok(commits) => {
+                    // If the bookmark is an ancestor, the distance is the number of commits between them
+                    // If working copy IS the bookmark, distance is 0
+                    let distance = if bookmark_commit_id == &working_copy_id {
+                        0
+                    } else {
+                        commits.len()
+                    };
+                    bookmark_distances.push((bookmark_name, distance));
+                }
+                Err(_) => {
+                    // Bookmark is not an ancestor of working copy, skip it
+                    continue;
+                }
+            }
+        }
+
+        // Find the closest bookmark (minimum distance)
+        let closest_bookmark = if let Some((closest, _)) = bookmark_distances.iter().min_by_key(|(_, distance)| *distance) {
+            closest.clone()
+        } else {
+            // No bookmarks are ancestors of working copy, fall back to base
+            base_bookmark.clone()
+        };
+
+        // Build the revset based on closest bookmark
+        let revset_expr = if closest_bookmark == *base_bookmark {
+            // Closest bookmark is the base, show all branches
+            format!("{base_revset}::")
+        } else {
+            // Check if the closest bookmark has any descendant bookmarks
+            let descendant_check_revset = format!("bookmarks({closest_bookmark}):: & bookmarks()");
+            let descendant_bookmarks = jj.evaluate_revset(&descendant_check_revset).await?;
+            
+            // Get the commit ID of the closest bookmark
+            let closest_bookmark_commit = jj.evaluate_revset(&closest_bookmark).await?;
+            let has_other_descendant_bookmarks = descendant_bookmarks.len() > 1 || 
+                (descendant_bookmarks.len() == 1 && descendant_bookmarks[0].id() != closest_bookmark_commit[0].id());
+            
+            if has_other_descendant_bookmarks {
+                // The closest bookmark has descendant branches, show all
+                format!("{base_revset}::")
+            } else {
+                // Show all bookmarks that are ancestors of the closest bookmark
+                format!("bookmarks() & ::bookmarks({closest_bookmark})")
+            }
+        };
+
         let graph = jj
             .evaluate_revset_graph(&revset_expr)
             .await?;
