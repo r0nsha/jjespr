@@ -28,6 +28,10 @@ struct SubmitArgs {
     /// The base revset to submit against, must resolve to a single bookmark that has a remote
     #[arg(short, long, value_name = "REVSET")]
     base: Option<String>,
+
+    /// Do not actually submit, just print the submission plan
+    #[arg(long, default_value_t = false)]
+    dry_run: bool,
 }
 
 fn main() -> Result<()> {
@@ -54,15 +58,18 @@ fn cmd_submit(root: PathBuf, args: SubmitArgs) -> Result<()> {
         "The following stack will be submitted:\n{}",
         log.display(repo.as_ref())
     );
-    let confirmation = dialoguer::Confirm::new()
-        .with_prompt("Submit?")
-        .interact()?;
 
-    if !confirmation {
+    if args.dry_run {
         return Ok(());
     }
 
-    println!("Submitting...");
+    let confirmed = dialoguer::Confirm::new()
+        .with_prompt("Submit?")
+        .interact()?;
 
-    Ok(())
+    if !confirmed {
+        return Ok(());
+    }
+
+    todo!("actually submit");
 }
