@@ -23,14 +23,14 @@ pub struct Log {
 }
 
 impl Log {
-    pub fn new(jj: &Jj, base_revset: &str) -> Result<Self> {
-        let base_commits = jj.evaluate_revset(base_revset)?;
+    pub async fn new(jj: &Jj, base_revset: &str) -> Result<Self> {
+        let base_commits = jj.evaluate_revset(base_revset).await?;
 
         if base_commits.len() != 1 {
             anyhow::bail!("base revset `{base_revset}` must resolve to exactly one commit")
         }
 
-        let repo = jj.repo()?;
+        let repo = jj.repo().await?;
         let view = repo.view();
 
         let base_bookmarks: Vec<_> = view
@@ -54,7 +54,9 @@ impl Log {
 
         let base_bookmark = &base_bookmarks[0];
 
-        let graph = jj.evaluate_revset_graph(&format!("{base_revset}::"))?;
+        let graph = jj
+            .evaluate_revset_graph(&revset_expr)
+            .await?;
 
         let mut this = Self {
             graph,

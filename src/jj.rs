@@ -5,6 +5,8 @@ use jj_lib::{
     backend::CommitId,
     commit::Commit,
     config::{ConfigLayer, ConfigNamePathBuf, ConfigSource, StackedConfig},
+    dsl_util::{AliasDeclarationParser, AliasesMap},
+    fileset::FilesetAliasesMap,
     git,
     graph::GraphNode,
     op_store::RefTarget,
@@ -25,7 +27,8 @@ use jj_lib::{
 pub struct Jj {
     workspace: Workspace,
     settings: UserSettings,
-    revset_aliases: RevsetAliasesMap,
+    revset_aliases_map: RevsetAliasesMap,
+    fileset_aliases_map: FilesetAliasesMap,
 }
 
 impl Jj {
@@ -71,23 +74,37 @@ impl Jj {
             &default_working_copy_factories(),
         )?;
 
-        let mut revset_aliases = Self::load_revset_aliases(settings.config())?;
-        if revset_aliases.get_function("trunk", 0).is_none() {
-            revset_aliases
+        let mut revset_aliases_map = Self::load_revset_aliases_map(settings.config())?;
+        if revset_aliases_map.get_function("trunk", 0).is_none() {
+            revset_aliases_map
                 .insert("trunk()", Self::DEFAULT_TRUNK)
                 .expect("valid alias declaration");
         };
 
+        let fileset_aliases_map = Self::load_fileset_aliases_map(settings.config())?;
+
         Ok(Self {
             workspace,
             settings,
-            revset_aliases,
+            revset_aliases_map,
+            fileset_aliases_map,
         })
     }
 
-    pub fn load_revset_aliases(config: &StackedConfig) -> Result<RevsetAliasesMap> {
-        let table_name = ConfigNamePathBuf::from_iter(["revset-aliases"]);
-        let mut aliases_map = RevsetAliasesMap::new();
+    fn load_revset_aliases_map(config: &StackedConfig) -> Result<RevsetAliasesMap> {
+        Self::load_aliases_map("revset-aliases", config)
+    }
+
+    fn load_fileset_aliases_map(config: &StackedConfig) -> Result<FilesetAliasesMap> {
+        Self::load_aliases_map("fileset-aliases", config)
+    }
+
+    fn load_aliases_map<P: Default + AliasDeclarationParser>(
+        table_name: &str,
+        config: &StackedConfig,
+    ) -> Result<AliasesMap<P, String>> {
+        let table_name = ConfigNamePathBuf::from_iter([table_name]);
+        let mut aliases_map = AliasesMap::default();
 
         let Some(table) = config
             .layers()
@@ -98,7 +115,7 @@ impl Jj {
         };
 
         for (decl, item) in table.iter() {
-            // We ignore invalid revset aliases, since JJ's cli already warns about them
+            // We ignore invalid aliases, since JJ's cli already warns about them
             if let Some(v) = item.as_str() {
                 let _ = aliases_map.insert(decl, v);
             }
@@ -107,8 +124,8 @@ impl Jj {
         Ok(aliases_map)
     }
 
-    pub fn repo(&self) -> Result<Arc<ReadonlyRepo>> {
-        Ok(self.workspace.repo_loader().load_at_head()?)
+    pub async fn repo(&self) -> Result<Arc<ReadonlyRepo>> {
+        Ok(self.workspace.repo_loader().load_at_head().await?)
     }
 
     pub fn workspace_name(&self) -> &jj_lib::ref_name::WorkspaceName {
@@ -149,7 +166,8 @@ impl Jj {
         };
 
         let context = RevsetParseContext {
-            aliases_map: &self.revset_aliases,
+            aliases_map: &self.revset_aliases_map,
+            fileset_aliases_map: &self.fileset_aliases_map,
             local_variables: std::collections::HashMap::new(),
             user_email: self.settings.user_email(),
             date_pattern_context: date_context,
@@ -181,8 +199,8 @@ impl Jj {
         Ok(revset)
     }
 
-    pub fn evaluate_revset(&self, expr: &str) -> Result<Vec<Commit>> {
-        let repo = self.repo()?;
+    pub async fn evaluate_revset(&self, expr: &str) -> Result<Vec<Commit>> {
+        let repo = self.repo().await?;
         let revset = self.evaluate_revset_inner(repo.as_ref(), expr)?;
 
         revset
@@ -195,8 +213,11 @@ impl Jj {
             .collect::<Result<Vec<_>>>()
     }
 
-    pub fn evaluate_revset_graph(&self, expr: &str) -> Result<Vec<GraphNode<Commit, CommitId>>> {
-        let repo = self.repo()?;
+    pub async fn evaluate_revset_graph(
+        &self,
+        expr: &str,
+    ) -> Result<Vec<GraphNode<Commit, CommitId>>> {
+        let repo = self.repo().await?;
         let revset = self.evaluate_revset_inner(repo.as_ref(), expr)?;
 
         let mut graph_nodes = Vec::new();

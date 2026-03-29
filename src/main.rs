@@ -34,7 +34,8 @@ struct SubmitArgs {
     dry_run: bool,
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let args = Cli::parse();
 
     let root = if let Some(path) = args.path {
@@ -44,15 +45,15 @@ fn main() -> Result<()> {
     };
 
     match args.command {
-        Commands::Submit(args) => cmd_submit(root, args),
+        Commands::Submit(args) => cmd_submit(root, args).await,
     }
 }
 
-fn cmd_submit(root: PathBuf, args: SubmitArgs) -> Result<()> {
+async fn cmd_submit(root: PathBuf, args: SubmitArgs) -> Result<()> {
     let jj = Jj::new(&root)?;
-    let repo = jj.repo()?;
+    let repo = jj.repo().await?;
 
-    let log = Log::new(&jj, &args.base.unwrap_or_else(|| "trunk()".to_string()))?;
+    let log = Log::new(&jj, &args.base.unwrap_or_else(|| "trunk()".to_string())).await?;
 
     println!(
         "The following stack will be submitted:\n{}",
